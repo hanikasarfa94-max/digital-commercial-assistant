@@ -138,15 +138,23 @@ export class InMemoryStore {
   }
 }
 
-// ── Singleton ────────────────────────────────────────────
-let _store: InMemoryStore | null = null;
+// ── Singleton (survives HMR in dev mode) ────────────────
+// In Next.js dev with Turbopack, modules can be re-evaluated on HMR.
+// Using globalThis ensures the store persists across reloads.
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __ZOVI_INMEMORY_STORE__: InMemoryStore | undefined;
+}
 
 export function getStore(): InMemoryStore {
-  if (!_store) _store = new InMemoryStore();
-  return _store;
+  if (!globalThis.__ZOVI_INMEMORY_STORE__) {
+    globalThis.__ZOVI_INMEMORY_STORE__ = new InMemoryStore();
+  }
+  return globalThis.__ZOVI_INMEMORY_STORE__;
 }
 
 /** Reset store to seed state (useful for testing) */
 export function resetStore(): void {
-  _store = new InMemoryStore();
+  globalThis.__ZOVI_INMEMORY_STORE__ = new InMemoryStore();
 }
