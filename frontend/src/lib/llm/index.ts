@@ -26,8 +26,6 @@ export type LLMConfig = {
 
 const CONFIG_PATH = path.join(process.cwd(), ".llm-config.json");
 
-let _provider: ILLMProvider | null = null;
-
 /** Read config from disk, falling back to env vars */
 function readConfigFromDisk(): LLMConfig | null {
   try {
@@ -62,10 +60,12 @@ export function getLLMConfig(): LLMConfig {
   };
 }
 
-/** Set LLM config — persists to disk and recreates provider on next getLLM() */
+/** Set LLM config — persists to disk and invalidates cached provider */
 export function setLLMConfig(config: LLMConfig): void {
   writeConfigToDisk(config);
-  _provider = null; // force recreation
+  // Invalidate globalThis cache so next getLLM() creates a fresh provider
+  globalThis.__ZOVI_LLM_PROVIDER__ = undefined;
+  globalThis.__ZOVI_LLM_PROVIDER_CONFIG__ = undefined;
 }
 
 function createProvider(config: LLMConfig): ILLMProvider {
@@ -88,14 +88,35 @@ function createProvider(config: LLMConfig): ILLMProvider {
   }
 }
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __ZOVI_LLM_PROVIDER__: ILLMProvider | undefined;
+  // eslint-disable-next-line no-var
+  var __ZOVI_LLM_PROVIDER_CONFIG__: string | undefined;
+}
+
+/**
+ * Get the active LLM provider.
+ *
+ * Re-reads config from disk each time and only recreates the provider
+ * if the config has changed. Uses globalThis so the cache survives
+ * Turbopack HMR (module-level variables get wiped on re-evaluation).
+ */
 export function getLLM(): ILLMProvider {
-  if (_provider) return _provider;
-
   const config = getLLMConfig();
-  _provider = createProvider(config);
+  const configKey = JSON.stringify(config);
 
-  console.log(`[LLM] Using provider: ${_provider.name}`);
-  return _provider;
+  // Reuse cached provider only if config hasn't changed
+  if (globalThis.__ZOVI_LLM_PROVIDER__ && globalThis.__ZOVI_LLM_PROVIDER_CONFIG__ === configKey) {
+    return globalThis.__ZOVI_LLM_PROVIDER__;
+  }
+
+  const provider = createProvider(config);
+  globalThis.__ZOVI_LLM_PROVIDER__ = provider;
+  globalThis.__ZOVI_LLM_PROVIDER_CONFIG__ = configKey;
+
+  console.log(`[LLM] Using provider: ${provider.name}`);
+  return provider;
 }
 
 // Re-export everything for convenience
